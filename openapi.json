@@ -102,10 +102,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Manufacturer, e.g. Genus, HPL, 'L&T'.",
+              "description": "Manufacturer: Genus, HPL, Secure, Allied or L&T (send as `L%26T`).",
               "title": "Make"
             },
-            "description": "Manufacturer, e.g. Genus, HPL, 'L&T'."
+            "description": "Manufacturer: Genus, HPL, Secure, Allied or L&T (send as `L%26T`)."
           },
           {
             "name": "phase_type",
@@ -138,6 +138,24 @@
               ],
               "title": "Install Type"
             }
+          },
+          {
+            "name": "has_data_quality",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "true: only meters whose portal data was repaired or flagged; false: only clean ones.",
+              "title": "Has Data Quality"
+            },
+            "description": "true: only meters whose portal data was repaired or flagged; false: only clean ones."
           },
           {
             "name": "zone",
@@ -188,8 +206,10 @@
                   "type": "null"
                 }
               ],
+              "description": "Division code, e.g. D-01. This code appears under more than one parent; matching is by code alone, so combine it with the parent codes (e.g. circle=C-01&division=D-01) to select a single branch.",
               "title": "Division"
-            }
+            },
+            "description": "Division code, e.g. D-01. This code appears under more than one parent; matching is by code alone, so combine it with the parent codes (e.g. circle=C-01&division=D-01) to select a single branch."
           },
           {
             "name": "subdivision",
@@ -204,8 +224,10 @@
                   "type": "null"
                 }
               ],
+              "description": "Subdivision code, e.g. SD-01. This code appears under more than one parent; matching is by code alone, so combine it with the parent codes (e.g. circle=C-01&division=D-01) to select a single branch.",
               "title": "Subdivision"
-            }
+            },
+            "description": "Subdivision code, e.g. SD-01. This code appears under more than one parent; matching is by code alone, so combine it with the parent codes (e.g. circle=C-01&division=D-01) to select a single branch."
           },
           {
             "name": "substation",
@@ -220,8 +242,10 @@
                   "type": "null"
                 }
               ],
+              "description": "Substation code, e.g. SS-01. This code appears under more than one parent; matching is by code alone, so combine it with the parent codes (e.g. circle=C-01&division=D-01) to select a single branch.",
               "title": "Substation"
-            }
+            },
+            "description": "Substation code, e.g. SS-01. This code appears under more than one parent; matching is by code alone, so combine it with the parent codes (e.g. circle=C-01&division=D-01) to select a single branch."
           },
           {
             "name": "feeder",
@@ -236,10 +260,10 @@
                   "type": "null"
                 }
               ],
-              "description": "Feeder code, e.g. F-007.",
+              "description": "Feeder code, e.g. F-007. This code appears under more than one parent; matching is by code alone, so combine it with the parent codes (e.g. circle=C-01&division=D-01) to select a single branch.",
               "title": "Feeder"
             },
-            "description": "Feeder code, e.g. F-007."
+            "description": "Feeder code, e.g. F-007. This code appears under more than one parent; matching is by code alone, so combine it with the parent codes (e.g. circle=C-01&division=D-01) to select a single branch."
           },
           {
             "name": "dt",
@@ -1223,7 +1247,7 @@
               }
             ],
             "title": "Distance Km",
-            "description": "Only present on proximity searches."
+            "description": "Distance from the search point on proximity searches; null otherwise."
           }
         },
         "type": "object",

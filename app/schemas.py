@@ -42,7 +42,7 @@ class Meter(BaseModel):
         default_factory=list,
         description="Problems found in the portal's data for this meter and how they were handled.",
     )
-    distance_km: Optional[float] = Field(None, description="Only present on proximity searches.")
+    distance_km: Optional[float] = Field(None, description="Distance from the search point on proximity searches; null otherwise.")
 
 
 class Page(BaseModel):

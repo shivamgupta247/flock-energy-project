@@ -169,6 +169,12 @@ class Resolution(str, Enum):
 # (otherwise e.g. ".." would reach other portal paths).
 METER_ID = Path(pattern=r"^[A-Za-z0-9-]{1,32}$", description="Meter id, e.g. J100001 (case-insensitive).")
 
+# Below circle level the portal reuses codes under different parents.
+_REUSED_CODES = (
+    "This code appears under more than one parent; matching is by code alone, so combine it "
+    "with the parent codes (e.g. circle=C-01&division=D-01) to select a single branch."
+)
+
 
 # -- routes --------------------------------------------------------------------
 
@@ -190,15 +196,18 @@ async def health(request: Request):
 async def list_meters(
     q: Optional[str] = Query(None, description="Case-insensitive substring of meter id or serial number."),
     install_status: Optional[InstallStatus] = None,
-    make: Optional[str] = Query(None, description="Manufacturer, e.g. Genus, HPL, 'L&T'."),
+    make: Optional[str] = Query(None, description="Manufacturer: Genus, HPL, Secure, Allied or L&T (send as `L%26T`)."),
     phase_type: Optional[PhaseType] = None,
     install_type: Optional[InstallType] = None,
+    has_data_quality: Optional[bool] = Query(
+        None, description="true: only meters whose portal data was repaired or flagged; false: only clean ones."
+    ),
     zone: Optional[str] = Query(None, description="Zone code, e.g. Z-01."),
     circle: Optional[str] = Query(None, description="Circle code, e.g. C-04."),
-    division: Optional[str] = None,
-    subdivision: Optional[str] = None,
-    substation: Optional[str] = None,
-    feeder: Optional[str] = Query(None, description="Feeder code, e.g. F-007."),
+    division: Optional[str] = Query(None, description=f"Division code, e.g. D-01. {_REUSED_CODES}"),
+    subdivision: Optional[str] = Query(None, description=f"Subdivision code, e.g. SD-01. {_REUSED_CODES}"),
+    substation: Optional[str] = Query(None, description=f"Substation code, e.g. SS-01. {_REUSED_CODES}"),
+    feeder: Optional[str] = Query(None, description=f"Feeder code, e.g. F-007. {_REUSED_CODES}"),
     dt: Optional[str] = Query(None, description="Distribution transformer code, e.g. DT-007."),
     near_lat: Optional[float] = Query(None, ge=-90, le=90, description="Proximity search: latitude."),
     near_lng: Optional[float] = Query(None, ge=-180, le=180, description="Proximity search: longitude."),
@@ -221,6 +230,7 @@ async def list_meters(
         hierarchy={"zone": zone, "circle": circle, "division": division, "subdivision": subdivision,
                    "substation": substation, "feeder": feeder, "dt": dt},
         near=near,
+        has_data_quality=has_data_quality,
     )
     start = (page - 1) * page_size
     return MeterList(
@@ -332,7 +342,7 @@ async def get_transformer(code: str, index: MeterIndex = Depends(fresh_index)):
 @app.get("/v1/hierarchy", response_model=HierarchyResponse, response_model_exclude_none=True, tags=["network"],
          summary="Network hierarchy tree (zone → circle → division → subdivision → substation → feeder → DT)")
 async def hierarchy(index: MeterIndex = Depends(fresh_index)):
-    return HierarchyResponse(data=index.hierarchy_tree(), freshness=freshness(index))
+    return HierarchyResponse(data=index.tree, freshness=freshness(index))
 
 
 @app.get("/v1/summary", response_model=SummaryResponse, tags=["network"], summary="Fleet-wide counts")

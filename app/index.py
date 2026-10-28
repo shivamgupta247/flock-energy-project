@@ -22,8 +22,6 @@ from .portal import PortalClient, PortalError, PortalUnavailable
 
 log = logging.getLogger(__name__)
 
-FILTERABLE = ("install_status", "make", "phase_type", "install_type")
-
 
 class MeterIndex:
     # After a failed refresh, wait this long before trying again, so a portal
@@ -42,6 +40,7 @@ class MeterIndex:
         self.meters: List[Dict[str, Any]] = []
         self.by_id: Dict[str, Dict[str, Any]] = {}
         self.transformers: Dict[str, Dict[str, Any]] = {}
+        self.tree: List[Dict[str, Any]] = []
 
     @property
     def is_stale(self) -> bool:
@@ -105,6 +104,7 @@ class MeterIndex:
 
         self.meters, self.transformers = meters, transformers
         self.by_id = {m["meter_id"]: m for m in meters}
+        self.tree = build_tree(meters)  # only changes with the snapshot, so build it once
         self._loaded_monotonic = time.monotonic()
         self.loaded_at = datetime.now(timezone.utc)
         log.info("Snapshot loaded: %d meters, %d transformers", len(meters), len(transformers))
@@ -117,9 +117,12 @@ class MeterIndex:
         filters: Optional[Dict[str, Optional[str]]] = None,
         hierarchy: Optional[Dict[str, Optional[str]]] = None,
         near: Optional[Dict[str, float]] = None,
+        has_data_quality: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
         """Filter the snapshot. Text match is case-insensitive on id and serial."""
         results = self.meters
+        if has_data_quality is not None:
+            results = [m for m in results if bool(m["data_quality"]) == has_data_quality]
         if q:
             needle = q.strip().lower()
             results = [
@@ -142,41 +145,6 @@ class MeterIndex:
             results = sorted(with_distance, key=lambda m: m["distance_km"])
         return results
 
-    def hierarchy_tree(self) -> List[Dict[str, Any]]:
-        """Zone -> ... -> DT tree, built from each meter's path.
-
-        Codes below circle are reused under several parents (D-01 sits under
-        C-01, C-03 and C-05), so a node is identified by its full path, not by
-        its code alone. Each node reports how many meters sit beneath it.
-        """
-        root: Dict[str, Any] = {"children": {}}
-        for m in self.meters:
-            node = root
-            for level in LEVELS:
-                h = m["hierarchy"][level]
-                key = h["code"] or f"(unknown {level})"
-                child = node["children"].get(key)
-                if child is None:
-                    child = node["children"][key] = {
-                        "level": level, "code": h["code"] or None, "name": h["name"] or None,
-                        "meter_count": 0, "children": {},
-                    }
-                child["meter_count"] += 1
-                node = child
-
-        def finish(node: Dict[str, Any]) -> List[Dict[str, Any]]:
-            out = []
-            for key in sorted(node["children"]):
-                child = node["children"][key]
-                children = finish(child)
-                item = {k: v for k, v in child.items() if k != "children"}
-                if children:
-                    item["children"] = children
-                out.append(item)
-            return out
-
-        return finish(root)
-
     def summary(self) -> Dict[str, Any]:
         def count(field: str) -> Dict[str, int]:
             return dict(Counter(m[field] or "unknown" for m in self.meters).most_common())
@@ -190,6 +158,42 @@ class MeterIndex:
             "by_install_type": count("install_type"),
             "meters_with_data_quality_issues": sum(1 for m in self.meters if m["data_quality"]),
         }
+
+
+def build_tree(meters: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Zone -> ... -> DT tree, built from each meter's path.
+
+    Codes below circle are reused under several parents (D-01 sits under
+    C-01, C-03 and C-05), so a node is identified by its full path, not by
+    its code alone. Each node reports how many meters sit beneath it.
+    """
+    root: Dict[str, Any] = {"children": {}}
+    for m in meters:
+        node = root
+        for level in LEVELS:
+            h = m["hierarchy"][level]
+            key = h["code"] or f"(unknown {level})"
+            child = node["children"].get(key)
+            if child is None:
+                child = node["children"][key] = {
+                    "level": level, "code": h["code"] or None, "name": h["name"] or None,
+                    "meter_count": 0, "children": {},
+                }
+            child["meter_count"] += 1
+            node = child
+
+    def finish(node: Dict[str, Any]) -> List[Dict[str, Any]]:
+        out = []
+        for key in sorted(node["children"]):
+            child = node["children"][key]
+            children = finish(child)
+            item = {k: v for k, v in child.items() if k != "children"}
+            if children:
+                item["children"] = children
+            out.append(item)
+        return out
+
+    return finish(root)
 
 
 def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:

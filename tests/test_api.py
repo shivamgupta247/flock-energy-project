@@ -89,6 +89,13 @@ def test_list_filters_and_paginates(client):
     assert body["freshness"]["stale"] is False
 
 
+def test_filter_by_data_quality(client):
+    flagged = client.get("/v1/meters", params={"has_data_quality": "true"}).json()["data"]
+    clean = client.get("/v1/meters", params={"has_data_quality": "false"}).json()["data"]
+    assert [m["meter_id"] for m in flagged] == ["J100002"]
+    assert len(clean) == 2
+
+
 def test_proximity_search_sorted_with_distance(client):
     body = client.get("/v1/meters", params={"near_lat": 26.9, "near_lng": 75.8, "radius_km": 5}).json()
     assert [m["meter_id"] for m in body["data"]] == ["J100000", "J100002"]

@@ -15,7 +15,7 @@ service talks to those endpoints directly, never scraping HTML.
 |---|---|---|
 | Log in | `POST /login` (form: `email`, `password`) | SvelteKit form action. Needs an `Origin` header. Sets the session cookie. |
 | Log out | `POST /api/auth/sign-out` | [better-auth](https://www.better-auth.com/) |
-| Search meters | `GET /portal/meters/search?q=&page=` | 20 per page, fixed. Matches id or serial only. |
+| Search meters | `GET /portal/meters/search?q=&page=` | 20 per page, fixed. Case-insensitive substring of id or serial only. |
 | Meter page data | `GET /meters/{id}/__data.json` | SvelteKit server-load data, `devalue`-encoded. Nameplate + hierarchy. |
 | Meter location | `GET /portal/meters/{id}/geo` | Lat/long as strings. |
 | Meter readings | `GET /portal/meters/{id}/energy?from=&to=` | Undocumented `from`/`to` (YYYY-MM-DD). |
@@ -39,9 +39,9 @@ service talks to those endpoints directly, never scraping HTML.
 
 ## Authentication
 
-* `POST /login` with form fields `email` and `password`. Without an
-  `Origin: https://urja-ops.flockenergy.tech` header SvelteKit rejects it as a
-  cross-site form post.
+* `POST /login` with form fields `email` and `password`. It needs an
+  `Origin: https://urja-ops.flockenergy.tech` header. Without one, SvelteKit's
+  CSRF check answers `403 Cross-site POST form submissions are forbidden`.
 * On success: `{"type":"redirect","status":303,"location":"/meters"}` and a
   cookie `__Secure-better-auth.session_token` with **Max-Age 3600 (1 hour)**.
 * On bad credentials: HTTP 200 (!) with
@@ -113,10 +113,11 @@ Zone → Circle → Division → Subdivision → Substation → Feeder → DT (d
   * Other names (`start`, `startDate`, `days`, `limit`…) are ignored.
 * **Data only exists for June 2026** (1–30 June). Anything outside returns `[]`.
 * **The cadence differs per meter.** Some meters report every 30 minutes
-  (1440 readings for June), others **once a day** (30 readings). In my sample,
-  J100000–J100039 were half-hourly and J100040 onwards daily. It does not
-  correlate with make, phase, install type or `build`. The API therefore
-  detects and reports `interval_minutes` per meter instead of assuming one.
+  (1440 readings for June), others **once a day** (30 readings). In the 102
+  meters I pulled (J100000–J100101), the first 40 were half-hourly and the
+  rest daily. It does not correlate with make, phase, install type or `build`.
+  The API therefore detects and reports `interval_minutes` per meter instead
+  of assuming one.
 * **Duplicates:** J100089 has two rows for `30/06/2026 00:00`. The second has
   blank `kwh` and `voltR`. I keep the more complete row and report it.
 * The UI renders blanks as "—", so blank values are clearly expected.
@@ -129,10 +130,11 @@ Zone → Circle → Division → Subdivision → Substation → Feeder → DT (d
 | **`devalue` encoding.** `__data.json` is a flat array where values point to other indices. | `__data.json` | Small decoder in `portal.decode_devalue`. |
 | **Hierarchy as strings.** `"Jaipur Zone 1 (Z-01)"` on the meter page. | `__data.json` | Parsed into `{name, code}`. |
 | **Blank hierarchy codes or names.** 22 meters have a level with an empty `code` (e.g. `{"name":"Circle 6","code":""}`) or an empty `name`. They affect circle, substation and feeder levels. | export | Repaired from the rest of the fleet (majority code↔name mapping). Every repair is listed in the meter's `data_quality`. All 22 were repairable. |
-| **Codes are reused under different parents.** Zone→circle is consistent (each circle belongs to one zone). Below that it isn't: division `D-01` appears under circles C-01, C-03 and C-05, and `SD-01` under three divisions. | export | Not "fixed": it may be how the utility numbers things, and I can't tell which parent is right. The hierarchy tree identifies nodes by **their full path**, not by code alone. Filters (`?division=D-01`) match by code and say so. |
+| **Codes are reused under different parents.** Zone→circle is consistent (each circle belongs to one zone). Below that it isn't: division `D-01` appears under circles C-01, C-03 and C-05, and `SD-01` under three divisions. | export | Not "fixed": it may be how the utility numbers things, and I can't tell which parent is right. The hierarchy tree identifies nodes by **their full path**, not by code alone. Filters (`?division=D-01`) match by code; their API docs say so and suggest adding parent codes (`?circle=C-01&division=D-01`) to select one branch. |
 | **Transformer name disagreement.** J100400–J100402 (the only `GN…` serials, all Genus three-phase) report DT-007 as **"Old Malviya Nagar Xfmr"**. The transformer register and the other 10 meters call it "Sanganer DT 7". They look like later additions carrying a stale name. | export | The meter keeps what the portal says. It is flagged in `data_quality`. `/v1/transformers` uses the register name. |
 | **Status contradicts readings.** Meters marked `Decommissioned` (e.g. J100000) or `Faulty` (e.g. J100004, J100005) report normal, steadily rising consumption for the whole of June. Either the status field is out of date or the readings are synthetic/estimated. I checked a handful, not the whole fleet. | status vs energy | Passed through unchanged. The web client flags it on the meter's page as something to check. |
 | **Serial prefixes don't match makes.** E.g. `SE…` serials on HPL meters, and serials like `L&84997`, which look like a mangled "L&T" prefix. | everywhere | Passed through unchanged. Not something I can repair with confidence. |
+| **Page size is fixed at 20.** Search and the transformer list ignore `pageSize`, `page_size`, `limit`, `size` and `perPage`, so listing all meters through search would take 21 requests. | `/portal/meters/search`, `/portal/dts` | The index uses the export instead; transformers are paged through (2 requests). |
 | **Status codes that lie.** Bad login = HTTP 200. Expired session on `__data.json` = HTTP 200. Unknown meter on `__data.json` = HTTP 200 with a nested `{"type":"error","status":404}` node. | various | The client reads bodies, not just status codes. |
 
 ## Rate limiting
@@ -145,8 +147,9 @@ Zone → Circle → Division → Subdivision → Substation → Feeder → DT (d
   meter with 8 parallel workers got 102 responses and then 301 × 429.
 
 The client spaces requests evenly (default 100/min) so it doesn't hit the
-limit. When a 429 does happen, it retries with exponential backoff
-(1, 2, 4, 8, 16 s) before giving up with a 503.
+limit. When a 429 does happen (e.g. someone else is using the same account),
+it makes up to 5 attempts in total, waiting 1, 2, 4 and 8 seconds between
+them, before the API returns a 503.
 
 ## Things I did not find
 

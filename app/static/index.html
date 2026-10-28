@@ -181,8 +181,13 @@ async function loadSummary() {
     tile("Installed", s.Installed ?? 0, pct(s.Installed ?? 0), STATUS_COLOR.Installed, "Installed") +
     tile("Faulty", s.Faulty ?? 0, pct(s.Faulty ?? 0), STATUS_COLOR.Faulty, "Faulty") +
     tile("Decommissioned", s.Decommissioned ?? 0, pct(s.Decommissioned ?? 0), STATUS_COLOR.Decommissioned, "Decommissioned") +
-    tile("Data-quality notes", data.meters_with_data_quality_issues, "meters with repaired or flagged data", "#8a5a00", "");
+    tile("Data-quality notes", data.meters_with_data_quality_issues, "meters with repaired or flagged data", "#8a5a00", "dq");
   document.querySelectorAll(".tile").forEach((t) => t.addEventListener("click", () => {
+    if (t.dataset.status === "dq") {
+      $("#status").value = "";
+      setScope("With data-quality notes", { has_data_quality: true });
+      return;
+    }
     showView("map-view");
     $("#status").value = t.dataset.status;
     refreshMeters();
