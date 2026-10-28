@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Urja Meter Explorer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #fff; --ink: #1d2433; --muted: #6b7385; --line: #e3e6ec;
+    --accent: #2457d6; --installed: #1f9d55; --faulty: #d64545; --decommissioned: #8a93a6;
+    --warn-bg: #fff6e5; --warn-ink: #8a5a00;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
+  header { display: flex; align-items: center; gap: 24px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; }
+  header h1 span { color: var(--muted); font-weight: 400; }
+  nav { display: flex; gap: 4px; }
+  nav button { border: 0; background: none; padding: 6px 12px; border-radius: 6px; font: inherit; color: var(--muted); cursor: pointer; }
+  nav button.active { background: #eaf0ff; color: var(--accent); font-weight: 600; }
+  #freshness { margin-left: auto; color: var(--muted); font-size: 12px; }
+  #freshness.stale { color: var(--warn-ink); }
+
+  .tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; padding: 16px 20px 0; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; cursor: pointer; }
+  .tile:hover { border-color: #c5cbd8; }
+  .tile .label { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  .tile .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile .sub { color: var(--muted); font-size: 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+  main { padding: 16px 20px 20px; }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  #map-view.active { display: grid; grid-template-columns: 260px 1fr; gap: 16px; height: calc(100vh - 170px); min-height: 480px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  #filters { padding: 14px; overflow-y: auto; }
+  #filters label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  #filters input, #filters select { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; background: #fff; }
+  #filters .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-top: 14px; }
+  #count { font-weight: 600; }
+  .chip { display: inline-flex; gap: 6px; align-items: center; background: #eaf0ff; color: var(--accent); border-radius: 999px; padding: 2px 4px 2px 10px; font-size: 12px; margin-top: 10px; }
+  .chip button { border: 0; background: none; color: inherit; cursor: pointer; font-size: 14px; }
+  button.link { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; font: inherit; }
+  .legend { margin-top: 16px; font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+  #map-wrap { position: relative; overflow: hidden; }
+  #map { position: absolute; inset: 0; border-radius: 10px; }
+
+  #drawer { position: absolute; top: 0; right: 0; bottom: 0; width: min(460px, 100%); background: var(--panel); border-left: 1px solid var(--line);
+            z-index: 1000; overflow-y: auto; padding: 16px 18px; transform: translateX(105%); transition: transform .2s; }
+  #drawer.open { transform: none; }
+  #drawer h2 { margin: 0; font-size: 18px; }
+  #drawer .close { position: absolute; right: 12px; top: 10px; border: 0; background: none; font-size: 22px; cursor: pointer; color: var(--muted); }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; }
+  .crumbs { font-size: 12px; color: var(--muted); margin: 6px 0 12px; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; }
+  h3 { font-size: 13px; margin: 18px 0 6px; }
+  .note { background: var(--warn-bg); color: var(--warn-ink); border-radius: 6px; padding: 6px 10px; font-size: 12px; margin-top: 6px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stats div { background: var(--bg); border-radius: 8px; padding: 6px 10px; }
+  .stats b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .stats span { font-size: 11px; color: var(--muted); }
+  .muted { color: var(--muted); font-size: 12px; }
+  .daterow { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+  .daterow input { padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; white-space: nowrap; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: #f8f9fb; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .bar { display: flex; height: 10px; width: 160px; border-radius: 3px; overflow: hidden; background: var(--line); }
+  .bar span { display: block; height: 100%; }
+  .intro { color: var(--muted); margin: 0 0 12px; }
+
+  #tree { padding: 14px 18px; }
+  #tree ul { list-style: none; margin: 0; padding-left: 18px; }
+  #tree > ul { padding-left: 0; }
+  #tree li { margin: 2px 0; }
+  .node { display: inline-flex; gap: 8px; align-items: center; padding: 2px 6px; border-radius: 6px; }
+  .node:hover { background: #f1f3f7; }
+  .toggle { width: 16px; text-align: center; cursor: pointer; color: var(--muted); border: 0; background: none; }
+  .level { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .count { font-size: 12px; color: var(--muted); }
+  .error { color: var(--faulty); padding: 20px; }
+  @media (max-width: 860px) {
+    .tiles { grid-template-columns: repeat(2, 1fr); }
+    #map-view.active { grid-template-columns: 1fr; height: auto; }
+    #map-wrap { height: 70vh; }
+    header { flex-wrap: wrap; gap: 8px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Urja Meter Explorer <span>· Jaipur distribution network</span></h1>
+  <nav>
+    <button data-view="map-view" class="active">Map</button>
+    <button data-view="dt-view">Transformers</button>
+    <button data-view="tree-view">Network</button>
+  </nav>
+  <div id="freshness"></div>
+</header>
+
+<section class="tiles" id="tiles"></section>
+
+<main>
+  <section id="map-view" class="view active">
+    <aside id="filters" class="panel">
+      <label for="q">Search meter id or serial</label>
+      <input id="q" placeholder="e.g. J1000 or GN">
+      <label for="status">Status</label>
+      <select id="status"><option value="">Any</option><option>Installed</option><option>Faulty</option><option>Decommissioned</option></select>
+      <label for="make">Make</label>
+      <select id="make"><option value="">Any</option></select>
+      <label for="phase">Phase</label>
+      <select id="phase"><option value="">Any</option><option value="single">Single</option><option value="three">Three</option></select>
+      <div id="scope"></div>
+      <div class="row"><span><span id="count">–</span> meters</span><button class="link" id="reset">Reset</button></div>
+      <div class="legend">
+        <span><span class="dot" style="background:var(--installed)"></span> Installed</span>
+        <span><span class="dot" style="background:var(--faulty)"></span> Faulty</span>
+        <span><span class="dot" style="background:var(--decommissioned)"></span> Decommissioned</span>
+        <span><span class="dot" style="background:#fff;border:2px solid var(--warn-ink)"></span> Outline: data-quality note</span>
+      </div>
+    </aside>
+    <div id="map-wrap" class="panel">
+      <div id="map"></div>
+      <aside id="drawer" aria-live="polite"></aside>
+    </div>
+  </section>
+
+  <section id="dt-view" class="view">
+    <p class="intro">Distribution transformers ranked by share of faulty meters. Click a row to see its meters on the map.</p>
+    <div class="panel"><table id="dt-table"></table></div>
+  </section>
+
+  <section id="tree-view" class="view">
+    <p class="intro">Zone → circle → division → subdivision → substation → feeder → transformer, with meter counts. Codes below circle level repeat under different parents, so each node is shown in its own path. Click a node to see its meters on the map.</p>
+    <div id="tree" class="panel"></div>
+  </section>
+</main>
+
+<script>
+const STATUS_COLOR = { Installed: "#1f9d55", Faulty: "#d64545", Decommissioned: "#8a93a6" };
+// Portal data only covers June 2026; the readings window defaults to it.
+const DEFAULT_FROM = "2026-06-01", DEFAULT_TO = "2026-06-30";
+// Supply voltage limits for 230 V LT consumers in India (+10% / -6%).
+const V_MIN = 216.2, V_MAX = 253;
+
+const state = { filters: {}, scope: null, meters: [], markers: null, charts: [], dtSort: { key: "faulty_share", dir: -1 } };
+const $ = (sel) => document.querySelector(sel);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function api(path, params = {}) {
+  const url = new URL(path, location.origin);
+  Object.entries(params).forEach(([k, v]) => v !== "" && v != null && url.searchParams.set(k, v));
+  const resp = await fetch(url);
+  const body = await resp.json();
+  if (!resp.ok) throw new Error(body.error?.message || resp.statusText);
+  return body;
+}
+
+// ---------- summary + freshness ----------
+async function loadSummary() {
+  const { data, freshness } = await api("/v1/summary");
+  const s = data.by_install_status;
+  const tile = (label, value, sub, color, onclick) =>
+    `<div class="tile" data-status="${onclick ?? ""}"><div class="label">${color ? `<span class="dot" style="background:${color}"></span>` : ""}${label}</div>
+     <div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+  const pct = (n) => `${Math.round((100 * n) / data.meters)}% of fleet`;
+  $("#tiles").innerHTML =
+    tile("Meters", data.meters, `${data.transformers} transformers`, null, "") +
+    tile("Installed", s.Installed ?? 0, pct(s.Installed ?? 0), STATUS_COLOR.Installed, "Installed") +
+    tile("Faulty", s.Faulty ?? 0, pct(s.Faulty ?? 0), STATUS_COLOR.Faulty, "Faulty") +
+    tile("Decommissioned", s.Decommissioned ?? 0, pct(s.Decommissioned ?? 0), STATUS_COLOR.Decommissioned, "Decommissioned") +
+    tile("Data-quality notes", data.meters_with_data_quality_issues, "meters with repaired or flagged data", "#8a5a00", "");
+  document.querySelectorAll(".tile").forEach((t) => t.addEventListener("click", () => {
+    showView("map-view");
+    $("#status").value = t.dataset.status;
+    refreshMeters();
+  }));
+  const f = $("#freshness");
+  f.textContent = `Snapshot ${new Date(freshness.snapshot_loaded_at).toLocaleTimeString()}${freshness.stale ? " · stale (portal refresh failing)" : ""}`;
+  f.classList.toggle("stale", freshness.stale);
+  const makes = Object.keys(data.by_make).sort();
+  $("#make").innerHTML = `<option value="">Any</option>` + makes.map((m) => `<option>${esc(m)}</option>`).join("");
+}
+
+// ---------- map ----------
+const map = L.map("map", { preferCanvas: true }).setView([26.91, 75.79], 11);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 18, attribution: "&copy; OpenStreetMap contributors",
+}).addTo(map);
+
+function currentParams() {
+  return {
+    q: $("#q").value.trim(), install_status: $("#status").value, make: $("#make").value,
+    phase_type: $("#phase").value, ...(state.scope?.params || {}), page_size: 500,
+  };
+}
+
+async function refreshMeters() {
+  const { data, page } = await api("/v1/meters", currentParams());
+  state.meters = data;
+  $("#count").textContent = page.total;
+  if (state.markers) state.markers.remove();
+  state.markers = L.layerGroup(data.filter((m) => m.location).map((m) =>
+    L.circleMarker([m.location.latitude, m.location.longitude], {
+      radius: m.phase_type === "three" ? 7 : 5,
+      color: m.data_quality.length ? "#8a5a00" : "#fff", weight: m.data_quality.length ? 2 : 1,
+      fillColor: STATUS_COLOR[m.install_status] || "#555", fillOpacity: 0.9,
+    }).bindTooltip(`${m.meter_id} · ${m.install_status} · ${esc(m.hierarchy.dt.name)}`)
+      .on("click", () => openMeter(m.meter_id))
+  )).addTo(map);
+  const pts = data.filter((m) => m.location).map((m) => [m.location.latitude, m.location.longitude]);
+  if (pts.length && state.scope) map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
+}
+
+function setScope(label, params) {
+  state.scope = label ? { label, params } : null;
+  $("#scope").innerHTML = label ? `<span class="chip">${esc(label)}<button title="Clear">×</button></span>` : "";
+  $("#scope button")?.addEventListener("click", () => { setScope(null); refreshMeters(); });
+  showView("map-view");
+  refreshMeters();
+}
+
+let debounce;
+$("#q").addEventListener("input", () => { clearTimeout(debounce); debounce = setTimeout(refreshMeters, 250); });
+["#status", "#make", "#phase"].forEach((s) => $(s).addEventListener("change", refreshMeters));
+$("#reset").addEventListener("click", () => {
+  $("#q").value = $("#status").value = $("#make").value = $("#phase").value = "";
+  setScope(null);
+  map.setView([26.91, 75.79], 11);
+});
+
+// ---------- meter drawer ----------
+async function openMeter(id, from = DEFAULT_FROM, to = DEFAULT_TO) {
+  const drawer = $("#drawer");
+  drawer.classList.add("open");
+  history.replaceState(null, "", `#meter=${encodeURIComponent(id)}`);
+  drawer.innerHTML = `<p class="muted">Loading ${esc(id)}…</p>`;
+  try {
+    const [{ data: m }, r] = await Promise.all([
+      api(`/v1/meters/${encodeURIComponent(id)}`),
+      api(`/v1/meters/${encodeURIComponent(id)}/readings`, { from, to, resolution: "daily" }),
+    ]);
+    renderMeter(m, r, from, to);
+  } catch (e) {
+    drawer.innerHTML = `<button class="close">×</button><p class="error">${esc(e.message)}</p>`;
+    drawer.querySelector(".close").onclick = closeDrawer;
+  }
+}
+
+function closeDrawer() {
+  $("#drawer").classList.remove("open");
+  history.replaceState(null, "", location.pathname);
+}
+
+function renderMeter(m, r, from, to) {
+  state.charts.forEach((c) => c.destroy());
+  state.charts = [];
+  const h = m.hierarchy;
+  const days = r.daily || [];
+  const total = days.reduce((a, d) => a + d.kwh, 0);
+  const avg = days.length ? total / days.length : null;
+  const pfs = days.map((d) => d.power_factor).filter((x) => x != null);
+  const vOut = days.filter((d) => d.voltage_r_min < V_MIN || d.voltage_r_max > V_MAX);
+  const notes = [...m.data_quality, ...(r.data_quality || [])];
+  if (m.install_status === "Faulty" && days.some((d) => d.kwh > 0))
+    notes.push("Marked Faulty, but still reporting consumption: worth checking whether the status is out of date.");
+  if (m.install_status === "Decommissioned" && days.some((d) => d.kwh > 0))
+    notes.push("Marked Decommissioned, but still reporting consumption.");
+
+  $("#drawer").innerHTML = `
+    <button class="close" aria-label="Close">×</button>
+    <h2>${esc(m.meter_id)} <span class="badge" style="background:${STATUS_COLOR[m.install_status] || "#555"}">${esc(m.install_status)}</span></h2>
+    <div class="crumbs">${["zone", "circle", "division", "subdivision", "substation", "feeder", "dt"].map((l) => esc(h[l].name || h[l].code || "?")).join(" › ")}</div>
+    <dl>
+      <dt>Serial</dt><dd>${esc(m.serial_no)}</dd>
+      <dt>Make</dt><dd>${esc(m.make)}</dd>
+      <dt>Phase</dt><dd>${esc(m.phase_type)}</dd>
+      <dt>Installation</dt><dd>${esc(m.install_type)}</dd>
+      <dt>Transformer</dt><dd><button class="link" id="dt-link">${esc(h.dt.code)} · ${esc(h.dt.name)}</button></dd>
+      <dt>Location</dt><dd>${m.location ? `${m.location.latitude.toFixed(5)}, ${m.location.longitude.toFixed(5)}` : "—"}</dd>
+    </dl>
+    ${notes.map((n) => `<div class="note">${esc(n)}</div>`).join("")}
+    <h3>Consumption</h3>
+    <div class="daterow"><input type="date" id="from" value="${from}"> – <input type="date" id="to" value="${to}">
+      <span class="muted">${r.interval_minutes ? `reads every ${r.interval_minutes === 1440 ? "day" : r.interval_minutes + " min"}` : ""}</span></div>
+    ${days.length ? `
+    <div class="stats" style="margin-top:8px">
+      <div><b>${total.toFixed(1)}</b><span>kWh in window</span></div>
+      <div><b>${avg.toFixed(1)}</b><span>kWh / day avg</span></div>
+      <div><b>${pfs.length ? (pfs.reduce((a, b) => a + b, 0) / pfs.length).toFixed(3) : "—"}</b><span>power factor</span></div>
+    </div>
+    <canvas id="daily-chart" height="170" style="margin-top:10px"></canvas>
+    <p class="muted">${r.interval_minutes === 30 ? "Click a day to see its half-hourly profile." : ""}</p>
+    <div id="intraday"></div>
+    <h3>Voltage (R phase)</h3>
+    <p class="muted">${vOut.length ? `${vOut.length} day(s) outside the ${V_MIN}–${V_MAX} V supply limits.` : `Within ${V_MIN}–${V_MAX} V supply limits on every day.`}</p>
+    <canvas id="volt-chart" height="120"></canvas>` : `<p class="muted">No readings in this window. The portal holds data for June 2026 only.</p>`}
+  `;
+  $("#drawer .close").onclick = closeDrawer;
+  $("#dt-link").onclick = () => setScope(`Transformer ${h.dt.code}`, { dt: h.dt.code });
+  const reload = () => openMeter(m.meter_id, $("#from").value, $("#to").value);
+  $("#from").onchange = reload;
+  $("#to").onchange = reload;
+  if (!days.length) return;
+
+  const labels = days.map((d) => d.date.slice(5));
+  const daily = new Chart($("#daily-chart"), {
+    type: "bar",
+    data: { labels, datasets: [{ label: "kWh", data: days.map((d) => d.kwh), backgroundColor: "#2457d6", borderRadius: 3 }] },
+    options: {
+      plugins: { legend: { display: false }, tooltip: { callbacks: { afterLabel: (c) => `PF ${days[c.dataIndex].power_factor ?? "—"}` } } },
+      scales: { y: { title: { display: true, text: "kWh" } } },
+      onClick: (_, els) => els.length && r.interval_minutes === 30 && showIntraday(m.meter_id, days[els[0].index].date),
+    },
+  });
+  const volt = new Chart($("#volt-chart"), {
+    type: "line",
+    data: { labels, datasets: [
+      { label: "max", data: days.map((d) => d.voltage_r_max), borderColor: "#d64545", pointRadius: 0, fill: false },
+      { label: "avg", data: days.map((d) => d.voltage_r_avg), borderColor: "#1d2433", pointRadius: 0 },
+      { label: "min", data: days.map((d) => d.voltage_r_min), borderColor: "#2457d6", pointRadius: 0 },
+    ] },
+    options: { plugins: { legend: { position: "bottom", labels: { boxWidth: 10 } } }, scales: { y: { suggestedMin: 210, suggestedMax: 255, title: { display: true, text: "V" } } } },
+  });
+  state.charts.push(daily, volt);
+}
+
+async function showIntraday(id, day) {
+  const box = $("#intraday");
+  box.innerHTML = `<p class="muted">Loading ${day}…</p>`;
+  const r = await api(`/v1/meters/${encodeURIComponent(id)}/readings`, { from: day, to: day });
+  const rows = (r.readings || []).filter((x) => x.kwh_delta != null);
+  box.innerHTML = `<h3>${day} · half-hourly kWh</h3><canvas id="intraday-chart" height="120"></canvas>`;
+  state.charts.push(new Chart($("#intraday-chart"), {
+    type: "line",
+    data: { labels: rows.map((x) => x.timestamp.slice(11, 16)), datasets: [{ data: rows.map((x) => x.kwh_delta), borderColor: "#2457d6", backgroundColor: "rgba(36,87,214,.12)", fill: true, pointRadius: 0, tension: .3 }] },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+  }));
+}
+
+// ---------- transformers ----------
+async function loadTransformers() {
+  const { data } = await api("/v1/transformers");
+  state.dts = data.map((t) => ({
+    ...t,
+    faulty: t.meters_by_status.Faulty || 0,
+    faulty_share: t.meter_count ? (t.meters_by_status.Faulty || 0) / t.meter_count : 0,
+  }));
+  renderTransformers();
+}
+
+function renderTransformers() {
+  const { key, dir } = state.dtSort;
+  const rows = [...state.dts].sort((a, b) => (a[key] > b[key] ? 1 : a[key] < b[key] ? -1 : 0) * dir);
+  const cols = [["code", "Code"], ["name", "Name"], ["feeder_code", "Feeder"], ["capacity_kva", "kVA"], ["meter_count", "Meters"], ["faulty_share", "Status mix"]];
+  $("#dt-table").innerHTML = `<thead><tr>${cols.map(([k, l]) => `<th data-key="${k}">${l}${k === key ? (dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((t) => {
+      const seg = (s) => `<span style="width:${(100 * (t.meters_by_status[s] || 0)) / Math.max(t.meter_count, 1)}%;background:${STATUS_COLOR[s]}"></span>`;
+      return `<tr data-code="${esc(t.code)}"><td>${esc(t.code)}</td><td>${esc(t.name)}</td><td>${esc(t.feeder_code)}</td>
+        <td class="num">${t.capacity_kva ?? "—"}</td><td class="num">${t.meter_count}</td>
+        <td><div style="display:flex;gap:8px;align-items:center"><div class="bar">${seg("Installed")}${seg("Faulty")}${seg("Decommissioned")}</div>
+        <span class="num muted">${Math.round(100 * t.faulty_share)}% faulty</span></div></td></tr>`;
+    }).join("")}</tbody>`;
+  document.querySelectorAll("#dt-table th").forEach((th) => th.onclick = () => {
+    state.dtSort = { key: th.dataset.key, dir: state.dtSort.key === th.dataset.key ? -state.dtSort.dir : -1 };
+    renderTransformers();
+  });
+  document.querySelectorAll("#dt-table tbody tr").forEach((tr) => tr.onclick = () => setScope(`Transformer ${tr.dataset.code}`, { dt: tr.dataset.code }));
+}
+
+// ---------- network tree ----------
+async function loadTree() {
+  const { data } = await api("/v1/hierarchy");
+  const render = (nodes, path) => `<ul>${nodes.map((n) => {
+    const p = { ...path, [n.level]: n.code };
+    const kids = n.children ? render(n.children, p) : "";
+    return `<li><span class="node">
+        ${n.children ? `<button class="toggle">▸</button>` : `<span class="toggle"></span>`}
+        <span class="level">${n.level}</span> <button class="link" data-path='${esc(JSON.stringify(p))}' data-label="${esc(`${n.level.toUpperCase()} ${n.code} · ${n.name || ""}`)}">${esc(n.code || "?")} ${esc(n.name || "")}</button>
+        <span class="count">${n.meter_count} meters</span></span>
+        ${kids ? `<div hidden>${kids}</div>` : ""}</li>`;
+  }).join("")}</ul>`;
+  $("#tree").innerHTML = render(data, {});
+  $("#tree").addEventListener("click", (e) => {
+    const t = e.target;
+    if (t.classList.contains("toggle") && t.tagName === "BUTTON") {
+      const kids = t.closest("li").querySelector(":scope > div");
+      kids.hidden = !kids.hidden;
+      t.textContent = kids.hidden ? "▸" : "▾";
+    } else if (t.dataset.path) {
+      setScope(t.dataset.label, JSON.parse(t.dataset.path));
+    }
+  });
+}
+
+// ---------- views ----------
+function showView(id) {
+  document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === id));
+  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === id));
+  if (id === "map-view") setTimeout(() => map.invalidateSize(), 0);
+}
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+
+(async () => {
+  try {
+    await loadSummary();
+    await refreshMeters();
+    await Promise.all([loadTransformers(), loadTree()]);
+    // Shareable deep links: #meter=J100001 or #view=dt-view
+    const link = new URLSearchParams(location.hash.slice(1));
+    if (link.get("view")) showView(link.get("view"));
+    if (link.get("meter")) openMeter(link.get("meter"));
+  } catch (e) {
+    document.querySelector("main").innerHTML = `<p class="error">Could not reach the API: ${esc(e.message)}</p>`;
+  }
+})();
+</script>
+</body>
+</html>
