@@ -227,7 +227,8 @@ the API.
   tile to filter the map.
 * **Map.** Every meter is coloured by status. Three-phase meters are drawn
   larger, and meters with data-quality notes are outlined. You can filter by
-  search, status, make and phase.
+  search, status, make and phase. To move around, drag or scroll/two-finger
+  swipe in any direction; to zoom, pinch or hold ⌘/Ctrl and scroll.
 * **Meter panel.** Click a meter to see:
   * its nameplate and its path through the network;
   * any data-quality notes;
